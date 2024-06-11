@@ -5,6 +5,7 @@ import random
 import re
 import urllib3
 import time
+import requests
 from urllib.parse import parse_qs, urlparse, unquote
 from locust import HttpUser, between, task
 from locust.exception import InterruptTaskSet
@@ -40,6 +41,9 @@ CREDENTIALS_FILENAME = "credentials.csv"
 CAS1_URL = "https://cas1:8443"
 CAS2_URL = "https://cas2:8443"
 CAS_LIST = [CAS2_URL, CAS2_URL]
+
+# URL du serveur proxy utilisé pour récuéprer le PGT
+PROXY_URL = "http://cas2:8000"
 
 # Conf relative aux logs
 logging.basicConfig(
@@ -143,25 +147,14 @@ class CASLocust(HttpUser):
                                             allow_redirects=False)
 
             logging.debug(f"Got answer for 2. /cas/login - POST for {self.username}")
-            """
-            logging.error(self.client.cookies.get("TGC"))
-            logging.error(type(self.client.cookies.get("TGC")))
-            for cookie in self.client.cookies:
-                print(cookie)
-                print(cookie.domain)
-                print(cookie.path)
-            """
+
+            # Pour tester des cookies "multidomaines"
             domains = self.client.cookies.list_domains()
             if 'cas1.local' not in domains:
                 self.client.cookies.set(name="TGC", value=self.client.cookies.get("TGC"), domain="cas1.local", path="/cas")
             if 'cas2.local' not in domains:
                 self.client.cookies.set(name="TGC", value=self.client.cookies.get("TGC"), domain="cas2.local", path="/cas")
-            """
-            for cookie in self.client.cookies:
-                print(cookie)
-                print(cookie.domain)
-                print(cookie.path)
-            """
+
             # cas_login_response est la requête de redirection vers le service (avec le TGT déjà dans les cookies)
             # cas_login_response.next est la réponse vers le service avec le ST dans l'URL
             if cas_login_response.status_code == 302:
@@ -174,21 +167,65 @@ class CASLocust(HttpUser):
                 # On change de serveur CAS
                 self.client.base_url = random.choice(CAS_LIST)
 
-                # 3- Le service fait valider le ST par le cas pour valider l'authentification
+                # 3.1 Le service fait valider le ST par le cas pour valider l'authentification
+                # Pour la première validation de ST, comme on est censé passer par le portail on va faire générer un PGT
                 with self.client.get("/cas/serviceValidate",
-                                            params={'service': SERVICE, 'ticket': cas_ticket},
-                                            name="3. /cas/serviceValidate - GET",
+                                            params={'service': SERVICE, 'ticket': cas_ticket, 'pgtUrl': PROXY_URL+"/proxyValidate"},
+                                            name="3.1 /cas/serviceValidate (proxy) - GET",
                                             verify=False,
                                             catch_response=True) as ticket_response:
 
-                    logging.debug(f"Got answer for 3. /cas/serviceValidate - GET for {self.username}")
+                    logging.debug(f"Got answer for 3.1. /cas/serviceValidate - GET for {self.username}")
 
                     ticket_status = ticket_response.status_code
                     assert ticket_status == 200, "CAS Ticket response code of: ".format(ticket_status)
 
                     user_data = ticket_response.text
-                    if "<cas:authenticationSuccess>" in user_data:
-                        logging.debug(f"ST validated for user {self.username}")
+
+                    if "<cas:authenticationSuccess>" and "<cas:proxyGrantingTicket>" in user_data:
+                        logging.debug(f"ST validated for user {self.username}, now generating PGT")
+                        # Récupération du PGTIOU
+                        pgtiou = user_data.split("<cas:proxyGrantingTicket>")[1].split("</cas:proxyGrantingTicket>")[0]
+                        logging.debug("PGTIOU extract : "+pgtiou)
+
+                        # Ici le proxy reçoit d'abord une requête de la part du CAS du type GET /proxyValidate?pgtIou=PGTIOU-6-XXXX&pgtId=PGT-6-XXXX HTTP/1.1 et répond en code 200
+                        # Ensuite le serveur CAS répond à la requête initiale avec un XML qui contient un PGTIOU
+                        # Dans notre cas le proxy est a moitié joué par un petit serveur python, et à moitié joué par ce script de test donc on ne voit que la moitié de la réponse
+                        # Il faut donc récupérer le PGT grâce au PGTIOU en faisant une requête au proxy (qui ne dépend donc pas du serveur CAS, pas de monitoring ici)
+                        proxy_answer = requests.get(PROXY_URL+"/getPGT?pgtiou="+pgtiou, verify=False, allow_redirects=False)
+                        pgt = proxy_answer.text
+                        logging.debug("Proxy -> PGT answer : "+pgt)
+
+                        # 3.2 Accès à une ressource protégée via le proxy -> le proxy fait une requête au serveur CAS
+                        # Ici on reproduit un comportement simillaire à la réalité ou on accède à 3 ressources
+                        for i in range(3):
+                            with self.client.get("/cas/proxy",
+                                                    params={'pgt': pgt, 'targetService': SERVICE},
+                                                    name="3.2. /cas/proxy - GET",
+                                                    verify=False,
+                                                    catch_response=True) as proxy_resource:
+                    
+                                # La réponse est un PT pour le service auquel on veut accéder
+                                logging.debug(f"Got answer for 3.2. /cas/proxy - GET for {self.username}")
+                                pt = proxy_resource.text.split("cas:proxyTicket>")[1]
+                                pt = pt[:len(pt)-2]
+                                logging.debug("pt extract : "+pt)
+                                if "<cas:proxySuccess>" in proxy_resource.text:
+                                    # 3.3 Ensuite le proxy fait une requête à l'app avec le ST pour que l'app requete le CAS pour faire valider son ST
+                                    with self.client.get("/cas/proxyValidate",
+                                                            params={'service': SERVICE, 'ticket': pt},
+                                                            name="3.3. /cas/proxyValidate - GET",
+                                                            verify=False,
+                                                            catch_response=True) as proxy_validate:
+                                        # On vérifie si la réponse est bonne
+                                        logging.debug(f"Got answer for 3.3. /cas/proxyValidate - GET for {self.username}")
+                                        if "<cas:authenticationSuccess>" not in proxy_validate.text:
+                                            proxy_validate.failure("Validation de PT impossible")
+                                            raise InterruptTaskSet()
+                                else:
+                                    proxy_resource.failure("Création de PT impossible")
+                                    raise InterruptTaskSet()
+
                     else:
                         logging.error(f"ST validation failed for user {self.username}")
                         logging.error(f"HTML content: {user_data}")
