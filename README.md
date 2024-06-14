@@ -1,6 +1,6 @@
 # Tests de montée en charge
 
-Les tests de montée en charge prennent la forme d'un script python utilisant la librairie locust.
+Les tests de montée en charge prennent la forme d'un script python (`loadcas.py`) utilisant la librairie locust.
 L'objectif de ce script est simple : simuler les différentes requêtes qu'un client CAS pourrait faire au serveur CAS et mesurer les temps de réponse du serveur CAS.
 
 ## Présentation du script
@@ -10,6 +10,7 @@ Une tâche correspond à un ensemble de requêtes envoyées au serveur CAS et si
 Chaque requête est traquée par locust, de sorte à mesurer son temps d'éxécution, mais aussi si la réponse est correcte (si ce n'est pas le cas, une erreur est levée).
 Un utilisateur (pour locust) correspond à un fil d'éxécution qui va réaliser les tâches qui lui sont confiées. Les utilisateurs sont indépendants les uns des autres.
 Dans notre cas, un utilisateur pour locust correspond à un utilisateur pour CAS (chaque utilisateur locust a un mot de passe et login différent).
+
 Le script est basé sur un script fourni par directement par CAS : https://github.com/apereo/cas/blob/master/etc/loadtests/locust/cas/casLocust.py
 
 Le script contient 2 tâches :
@@ -17,6 +18,7 @@ Le script contient 2 tâches :
 - Une tâche servant uniquement à faire le logout, appelée lorsque les tests sont terminées afin de nettoyer le ticket registry
 
 La tâche principale est la tâche avec le flot d'authentification complet. Cette tâche va être appellée en boucle par l'utilisateur (avec un certain délai entre deux éxécutions).
+
 Elle contient tout d'abord la phase de "première connexion" :
 - Un GET sur `/login`, simulant un utilisateur qui arrive sur le CAS
 - Un petit délai simulant l'utilisateur qui entre ses identifiants
@@ -43,11 +45,8 @@ Ainsi, ce serveur garde en mémoire un dictionnaire associant les PGTIOU aux PGT
 - /proxyValidate ou il reçoit les requêtes du serveur CAS
 - /getPGT ou il reçoit les requetes du script locust
 
-### Script utilitaire de génération d'utilisateurs de test
-Un script annexe `generate_users.py` est utilisé pour générer un ldif avec les utilisateurs de test (pour le docker ldap) et un csv que le script locust prend en entrée comme liste des utilisateurs de test (avec uniquement login/mdp). Le fichier ldif sera à mettre dans `.docker/bootstrap/ldif/custom` dans le docker-openldap. Le fichier csv est lui à laisser dans le répertoire où il est.
-
 ### Définition du service de test
-Le script locust fait valider des ST, PT et génère des PGT. Il a donc besoin de venir d'un service reconnu par le CAS. La définition du service de test utilisé (coté CAS) est la suivante :
+Le script locust fait valider des ST, PT, et génère des TGT et PGT. Il a donc besoin de venir d'un service reconnu par le CAS. La définition du service de test utilisé (coté CAS) est la suivante :
 ```json
 {
     "@class" : "org.apereo.cas.services.CasRegisteredService",
@@ -86,7 +85,7 @@ Le script locust fait valider des ST, PT et génère des PGT. Il a donc besoin d
 ### Coté client (script)
 Cloner le repo qui contient les scripts de test python
 ```bash
-git clone locust
+git clone https://github.com/GIP-RECIA/cas-load-testing.git
 ```
 
 Installer pyenv (`https://github.com/pyenv/pyenv`) et créer un envrionnement python en 3.11.X avec nommé locust.
@@ -121,9 +120,9 @@ Activer l'environnement python dans lequel locust est installé :
 pyenv activate locust
 ```
 
-Lancer le serveur web locust ;
+Lancer le serveur web locust :
 ```bash
-locust -f cas/casLocust.py --host=HOST --skip-log-setup
+locust -f loadcas.py --host=HOST --skip-log-setup
 ```
 L'interface web de locust est alors disponible à l'adresse `http://localhost:8089`
 
@@ -136,3 +135,14 @@ Il suffit alors d'appuyer sur le bouton `Start swarming` pour lancer les requêt
 Une fois l'éxécution du script terminé (et même pendant son exécution), on peut consulter la page de lecture des résultats. Celle-ci donne plusieurs informations qui permettent de mesurer si le serveur CAS tient ou non la montée en charge, notamment :
 - Une page `Statistics` qui donne des informations pour chaque requête. On surveillera particulièrement le nombre de fails, le temps median et le temps moyen
 - Une page `Charts` avec un graphique (celui en bas) qui donne des informations sur l'évolution du temps de réponse des requêtes au fil du temps
+
+
+## Scripts utilitaires
+
+Plusieurs scripts utilitaires sont présents dans le dossier `utils`. Ils ne sont en soit pas nécéssaires au fonctionnement des tests de montée en charge, mais permettent de tester plus "individuellement" le fonctionnement du serveur CAS.
+
+### Script utilitaire de génération d'utilisateurs de test
+Un script annexe `generate_users.py` est utilisé pour générer un ldif avec les utilisateurs de test (pour le docker ldap) et un csv que le script locust prend en entrée comme liste des utilisateurs de test (avec uniquement login/mdp). Le fichier ldif sera à mettre dans `.docker/bootstrap/ldif/custom` dans le docker-openldap. Le fichier csv est lui à laisser dans le répertoire où il est.
+
+### Scrips utilitaires de tests de fonctionnement
+Plusieurs scripts python servent à tester et valider le fonctionnement correct d'un protocole donné en rejouant les requêtes correspondantes une par une. La principale différence avec le script locust est que ces scripts ne réalisent qu'une seule connexion et sont fait pour être très verbeux pour tester au fil des requêtes ce qui se passe coté client (cookies, etc..).
