@@ -221,7 +221,7 @@ class CASLocust(HttpUser):
                 # Temps de la session CAS
                 cas_session_time = random.randint(MIN_TIME_OF_SESSION,MAX_TIME_OF_SESSION)
                 # Nombre de service auxquels on va accéder pendant la session CAS
-                service_validate_count = random.randint(6,8)
+                service_validate_count = random.randint(4,6)
 
                 # On va refaire valider un certain nombre de ST pendant le temps de la session CAS
                 for i in range(service_validate_count):
