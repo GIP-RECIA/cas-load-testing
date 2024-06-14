@@ -43,12 +43,16 @@ CAS_URL = "https://loadcas.test.recia.dev"
 # URL du serveur proxy utilisé pour récuéprer le PGT
 PROXY_URL = "http://cas2:8000"
 
+# Niveau de log et fichier de log
+LOGGING_LEVEL = logging.ERROR
+LOGGING_FILE = "logs/locust.log"
+
 # Conf relative aux logs
 logging.basicConfig(
-    level=logging.ERROR,
+    level=LOGGING_LEVEL,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("logs/locust.log"),
+        logging.FileHandler(LOGGING_FILE),
         logging.StreamHandler()
     ]
 )
