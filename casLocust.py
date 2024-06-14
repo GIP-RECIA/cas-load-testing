@@ -37,10 +37,8 @@ MAX_TIME_OF_SESSION = 300
 # Nom du fichier contenant les identifiants
 CREDENTIALS_FILENAME = "credentials.csv"
 
-# URL du ou des serveurs CAS, si on ne teste qu'un serveur mettre deux url identiques ou modifier la liste en conséquence
-CAS1_URL = "https://cas1:8443"
-CAS2_URL = "https://cas2:8443"
-CAS_LIST = [CAS2_URL, CAS2_URL]
+# URL du serveur CAS
+CAS_URL = "https://loadcas.test.recia.dev"
 
 # URL du serveur proxy utilisé pour récuéprer le PGT
 PROXY_URL = "http://cas2:8000"
@@ -83,6 +81,7 @@ class CASLocust(HttpUser):
         """
         Méthode appelée une seule fois lors de la création de l'utilisateur
         """
+        self.client.base_url = CAS_URL
         # On choisi un couple login/password au hasard
         cred = random.choice(CREDS)
         self.username = cred[0]
@@ -96,9 +95,6 @@ class CASLocust(HttpUser):
         Tâche principale qui a pour but de reproduire un flot pour une authentification CAS
         """
         logging.debug(f"CAS login process starting for {self.username}")
-
-        # On change de serveur CAS
-        self.client.base_url = random.choice(CAS_LIST)
 
         # 1- Le service redirige l'utilisateur non connecté vers la page de connexion du CAS
         cas_response = self.client.get("/cas/login?service="+SERVICE,
@@ -148,13 +144,6 @@ class CASLocust(HttpUser):
 
             logging.debug(f"Got answer for 2. /cas/login - POST for {self.username}")
 
-            # Pour tester des cookies "multidomaines"
-            domains = self.client.cookies.list_domains()
-            if 'cas1.local' not in domains:
-                self.client.cookies.set(name="TGC", value=self.client.cookies.get("TGC"), domain="cas1.local", path="/cas")
-            if 'cas2.local' not in domains:
-                self.client.cookies.set(name="TGC", value=self.client.cookies.get("TGC"), domain="cas2.local", path="/cas")
-
             # cas_login_response est la requête de redirection vers le service (avec le TGT déjà dans les cookies)
             # cas_login_response.next est la réponse vers le service avec le ST dans l'URL
             if cas_login_response.status_code == 302:
@@ -163,9 +152,6 @@ class CASLocust(HttpUser):
                 
                 # On récupère le ST dans l'URL
                 cas_ticket = cas_login_response.next.url.split(SERVICE+"?ticket=")[1]
-
-                # On change de serveur CAS
-                self.client.base_url = random.choice(CAS_LIST)
 
                 # 3.1 Le service fait valider le ST par le cas pour valider l'authentification
                 # Pour la première validation de ST, comme on est censé passer par le portail on va faire générer un PGT
@@ -240,8 +226,6 @@ class CASLocust(HttpUser):
                 # On va refaire valider un certain nombre de ST pendant le temps de la session CAS
                 for i in range(service_validate_count):
                     time.sleep(cas_session_time/service_validate_count)
-                    # On change de serveur CAS
-                    self.client.base_url = random.choice(CAS_LIST)
 
                     # On envoie un GET sur /cas/login mais cette fois-ci avec le cookie, dont on se connecte directement
                     with self.client.get("/cas/login?service="+SERVICE,
@@ -257,9 +241,6 @@ class CASLocust(HttpUser):
                             
                             # On récupère le ST dans l'URL
                             cas_ticket = cas_login_get_response.next.url.split(SERVICE+"?ticket=")[1]
-
-                            # On change de serveur CAS
-                            self.client.base_url = random.choice(CAS_LIST)
 
                             # Le service fait valider le ST par le cas pour valider l'authentification
                             with self.client.get("/cas/serviceValidate",
@@ -292,9 +273,6 @@ class CASLocust(HttpUser):
                 # On reste connecté au cas encore un certain temps avant de se déconnecter
                 time.sleep(cas_session_time/service_validate_count)
 
-                # On change de serveur CAS
-                self.client.base_url = random.choice(CAS_LIST)
-
                 # Puis on se déconnecte
                 self.client.get("/cas/logout",
                     verify=False,
@@ -311,10 +289,9 @@ class CASLocust(HttpUser):
     def on_stop(self):
         """
         Méthode appelée une seule fois lors de la destruction de l'utilisateur (une fois les tests terminés)
-        Ici on s'assure juste que l'utilisateur est bien déconnecté (on répartit les déconnexions sur 5 minutes)
+        Ici on s'assure juste que l'utilisateur est bien déconnecté (on réparti les déconnexions sur 5 minutes)
         """
         time.sleep(random.randint(1,120))
-        self.client.base_url = random.choice(CAS_LIST)
         self.client.get("/cas/logout",
                 verify=False,
                 name="6. /cas/logout - GET")
