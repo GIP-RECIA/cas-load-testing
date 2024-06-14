@@ -25,7 +25,8 @@ print("Génération du ldif en cours...")
 f = open("31-people.ldif", "w+")
 s = "version: 1\n"
 for i in range(1,NB_USERS):
-    s += f"""
+    print(i)
+    s = f"""
 dn: uid=F{i}abc,ou=people,dc=esco-centre,dc=fr
 objectClass: eduMember
 objectClass: ESCOEleveAddons
@@ -115,7 +116,7 @@ uid: F{i}abc
 userPassword: test
 """
 
-f.write(s)
+    f.write(s)
 f.close()
 
 print("ldif généré !")

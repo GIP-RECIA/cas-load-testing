@@ -24,15 +24,20 @@ Elle contient tout d'abord la phase de "première connexion" :
 - Un petit délai simulant l'utilisateur qui entre ses identifiants
 - Un POST sur `/login`, simulant un utilisateur qui clique sur se connecter après avoir saisi ses identifiants
 - Un GET sur `/serviceValidate`, simulant le client CAS qui fait valider son ST auprès du serveur CAS
+
 **Important** : Le service simulé est un service autorisé à fonctionner en proxy (comme le portail), on va donc faire faire un ensemble de requêtes qu'on ne fait que dans ce mode précis (pour simuler le fonctionnement du portail)
 Dans notre cas le fonctionnement du script est particulier car il doit jouer le rôle du navigateur web de l'utilisateur, mais aussi du client CAS et du proxy (car on a besoin de récuperer le PGT).
+
 On réalise ensuite 3 fois de suite et sans délai :
 - Un GET sur `/proxy` pour simuler un serveur qui voudrait réaliser une autentification CAS à travers le proxy (le portail)
 - Un GET sur `/proxyValidate` pour simuler un serveur qui voudrait faire valider son PT
+
 Ensuite, on passe dans la phase de "nouvelle connexion", autrement dit la réutilisation de son TGT pour accéder à d'autres services.
+
 Pour cela, on répète un certain nombre de fois, avec un certain délai entre les répétitions, les deux requpetes suivantes :
 - Un GET sur `/login`, simulant un service qui redirige vers cet URL avec le TGT comme cookie car l'utilisateur est déjà authentifié auprès du CAS
 - Un GET sur `/serviceValidate`, simulant le client CAS qui fait valider son ST auprès du serveur CAS
+
 Enfin, on se déconnecte avec :
 - Un GET sur `/logout`, simulant soit l'utilisateur qui termine sa session CAS en se déconnectant
 Une fois que toutes ces requêtes ont été effectuées, on peut donc recommencer la tâche principale (avec le même utilisateur).
